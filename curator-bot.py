@@ -73,23 +73,27 @@ def main():
     unread_messages = []
     init_db()
     for message in reddit.inbox.stream():
+        # Delegate message type handling. 
         unread_messages.append(message)
-        if is_mention(message):
-            feed_date = message.body.split()[1]
-            write_entry_to_db(message, feed_date)
-            send_entry_accepted_message(message, feed_date)
-        elif requesting_current_feed(message):
-            feed_date = message.body.split()[1]
-            feed = fetch_feed_from_db(message.author.name, feed_date)
-            if feed:
-                send_requested_feed(message.author, feed_date, feed, reddit)
-            else:
-                send_feed_not_found(message.author, feed_date)
-        elif help_requested(message):
-            send_help_message(message.author)
+        # message_category = categorise_message(message)
         reddit.inbox.mark_read(unread_messages)
     db_cursor.close()
     db_conn.close()
+
+def categorise_message(message, reddit):
+    # Categorise into enum values and handle off?
+    # Use abstraction?
+    # All three message types pass a message back to the user. Would make sense to modularise that.
+    if is_mention(message):
+        feed_date = message.body.split()[1]
+        write_entry_to_db(message, feed_date)
+        send_entry_accepted_message(message, feed_date)
+    elif is_feed_request(message):
+        feed_date = message.body.split()[1]
+        feed = fetch_feed_from_db(message.author.name, feed_date)
+        send_requested_feed(message.author, feed_date, feed, reddit)
+    elif is_help_request(message):
+        send_help_message(message.author)
 
 def init_db():
     db_cursor.execute(TABLE_CREATE)
@@ -132,6 +136,7 @@ def stringify_feed(date, feed_data, reddit):
         primary_authors = True
         question_answered = " answered [{}]({}).".format(question[0], question[1])
         for authors in more_itertools.grouper(feed_dict[question], 3):
+            # TODO: Refactor message building
             authors = ["/u/"+author for author in authors if author is not None]
             if primary_authors:
                 author_template = generate_author_template(len(authors))
@@ -152,18 +157,16 @@ def generate_author_template(author_count):
         author_template = "{}, {}, and {}"
     return author_template
 
-def requesting_current_feed(message):
+def is_feed_request(message):
     return message.body.startswith("Feed: ")
 
 def send_requested_feed(author, date, feed, reddit):
-    reply_body = "Your feed for {}:\n{}".format(date, stringify_feed(date, feed, reddit))
-    reply_subject = "Feed request for {}".format(date)
-    reply_body += BOT_CREATOR_TEMPLATE
-    author.message(reply_subject, reply_body)
-
-def send_feed_not_found(author, date):
-    reply_body = "No feed found for {}.".format(date)
-    reply_subject = "No feed found. Please recheck the date."
+    if feed:
+        reply_body = "Your feed for {}:\n{}".format(date, stringify_feed(date, feed, reddit))
+        reply_subject = "Feed request for {}".format(date)
+    else:
+        reply_body = "No feed found for {}.".format(date)
+        reply_subject = "No feed found. Please recheck the date."
     reply_body += BOT_CREATOR_TEMPLATE
     author.message(reply_subject, reply_body)
 
@@ -177,7 +180,7 @@ def send_entry_accepted_message(comment, feed_date):
 def send_help_message(author):
     author.message(BOT_HELP_SUBJECT, BOT_HELP_TEXT)
 
-def help_requested(message):
+def is_help_request(message):
     # TODO: case handling and message validation?
     # TODO: modularising bot commands??
     return message.body == "/u/-CuratorBot- HELP!" or message.body == "u/-CuratorBot- HELP!"
